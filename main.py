@@ -787,14 +787,202 @@
 
 # if __name__ == "__main__":
 #     main()
+# import cv2
+# import numpy as np
+# import json
+# import joblib
+# from scipy.signal import find_peaks
+
+# from config import *
+# from utils.video_stream import get_stream
+# from validation.face_validator import FaceValidator
+# from processing.roi_extractor import extract_roi
+# from processing.signal_processor import extract_rgb_means
+# from processing.hr_estimation import estimate_hr, get_pos_signal
+# from processing.rr_estimation import estimate_rr
+# from processing.hrv_estimation import estimate_hrv
+# from processing.spo2_estimation import estimate_spo2
+
+
+# # -------------------------------------------------
+# # Convert NumPy types to native Python (JSON safe)
+# # -------------------------------------------------
+# def convert_to_native(obj):
+#     if isinstance(obj, np.generic):
+#         return obj.item()
+#     if isinstance(obj, dict):
+#         return {k: convert_to_native(v) for k, v in obj.items()}
+#     if isinstance(obj, list):
+#         return [convert_to_native(i) for i in obj]
+#     return obj
+
+
+# # -------------------------------------------------
+# # BP Feature Extraction
+# # -------------------------------------------------
+# def extract_bp_features(signal_array, fps):
+
+#     hr = estimate_hr(signal_array, fps)
+
+#     pulse = get_pos_signal(signal_array)
+#     peaks, _ = find_peaks(pulse, distance=fps * 0.4)
+
+#     if len(peaks) < 2:
+#         return None
+
+#     rr_intervals = np.diff(peaks) / fps
+#     ptt = np.mean(rr_intervals)
+
+#     amplitude = np.std(pulse)
+
+#     green = signal_array[:, 1]
+#     ac = np.std(green)
+#     dc = np.mean(green)
+
+#     if dc < 1e-6:
+#         return None
+
+#     ac_dc_ratio = ac / dc
+
+#     return np.array([[hr, ptt, amplitude, ac_dc_ratio]])
+
+
+# # -------------------------------------------------
+# # Core Processing Function (USED BY FASTAPI)
+# # -------------------------------------------------
+# def process_video_file(video_path, update_callback=None):
+
+#     cap = cv2.VideoCapture(video_path)
+#     fps = cap.get(cv2.CAP_PROP_FPS)
+
+#     face_validator = FaceValidator()
+#     signal = []
+#     frame_count = 0
+
+#     while cap.isOpened() and frame_count < TOTAL_FRAMES:
+
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+
+#         frame_count += 1
+
+#         valid_face, landmarks = face_validator.validate(frame)
+
+#         if valid_face:
+#             roi = extract_roi(frame, landmarks)
+#             if roi.size != 0:
+#                 rgb_val = extract_rgb_means(roi)
+#                 if rgb_val is not None:
+#                     signal.append(rgb_val)
+
+#         # 🔥 Live Updates from 500–900
+#         if update_callback and frame_count >= 500 and frame_count % 100 == 0:
+
+#             if len(signal) > int(fps * 8):
+
+#                 signal_array = np.array(signal)
+
+#                 hr = estimate_hr(signal_array, fps)
+
+#                 rr_window = int(fps * 25)
+#                 rr_signal = signal_array[-rr_window:] if len(signal_array) > rr_window else signal_array
+#                 pos_rr = get_pos_signal(rr_signal)
+#                 rr = estimate_rr(pos_rr, fps)
+
+#                 spo2 = estimate_spo2(signal_array, fps)
+
+#                 update_callback(frame_count, {
+#                     "heart_rate_bpm": float(hr),
+#                     "respiratory_rate_bpm": float(rr) if rr else None,
+#                     "spo2_percent": float(spo2) if spo2 else None
+#                 })
+
+#     cap.release()
+
+#     if len(signal) < int(fps * 20):
+#         return None
+
+#     signal_array = np.array(signal)
+
+#     # ===== FINAL HR =====
+#     final_bpm = estimate_hr(signal_array, fps)
+
+#     # ===== FINAL RR =====
+#     pos_full = get_pos_signal(signal_array)
+#     final_rr = estimate_rr(pos_full, fps)
+
+#     # ===== FINAL SpO2 =====
+#     final_spo2 = estimate_spo2(signal_array, fps)
+
+#     # ===== FINAL HRV =====
+#     hrv_metrics = estimate_hrv(pos_full, fps)
+
+#     # ===== FINAL BP =====
+#     try:
+#         sbp_model = joblib.load("sbp_model.pkl")
+#         dbp_model = joblib.load("dbp_model.pkl")
+#         scaler = joblib.load("bp_scaler.pkl")
+#         poly = joblib.load("bp_poly.pkl")
+
+#         features = extract_bp_features(signal_array, fps)
+
+#         if features is not None:
+#             features_scaled = scaler.transform(features)
+#             features_poly = poly.transform(features_scaled)
+
+#             sbp = sbp_model.predict(features_poly)[0]
+#             dbp = dbp_model.predict(features_poly)[0]
+
+#             sbp = max(90, min(180, sbp))
+#             dbp = max(50, min(120, dbp))
+#         else:
+#             sbp = None
+#             dbp = None
+
+#     except:
+#         sbp = None
+#         dbp = None
+
+#     return {
+#         "heart_rate_bpm": float(final_bpm),
+#         "respiratory_rate_bpm": float(final_rr) if final_rr else None,
+#         "spo2_percent": float(final_spo2) if final_spo2 else None,
+#         "blood_pressure": {
+#             "systolic": float(sbp) if sbp else None,
+#             "diastolic": float(dbp) if dbp else None
+#         },
+#         "hrv": hrv_metrics
+#     }
+
+
+# # -------------------------------------------------
+# # Standalone CLI Mode (Optional)
+# # -------------------------------------------------
+# def main():
+
+#     print("\n===== PulseScanAI CLI Mode =====\n")
+
+#     path = input("Enter video path: ")
+
+#     result = process_video_file(path)
+
+#     if result is None:
+#         print("❌ Not enough signal.")
+#         return
+
+#     print("\nFinal Result:\n")
+#     print(json.dumps(convert_to_native(result), indent=4))
+
+
+# if __name__ == "__main__":
+#     main()
 import cv2
 import numpy as np
-import json
 import joblib
 from scipy.signal import find_peaks
 
-from config import *
-from utils.video_stream import get_stream
+from config import TOTAL_FRAMES
 from validation.face_validator import FaceValidator
 from processing.roi_extractor import extract_roi
 from processing.signal_processor import extract_rgb_means
@@ -804,27 +992,27 @@ from processing.hrv_estimation import estimate_hrv
 from processing.spo2_estimation import estimate_spo2
 
 
-# -------------------------------------------------
-# Convert NumPy types to native Python (JSON safe)
-# -------------------------------------------------
-def convert_to_native(obj):
-    if isinstance(obj, np.generic):
-        return obj.item()
-    if isinstance(obj, dict):
-        return {k: convert_to_native(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [convert_to_native(i) for i in obj]
-    return obj
+# =========================================================
+# 🔥 LOAD BP MODELS ONCE (IMPORTANT FOR PERFORMANCE)
+# =========================================================
+try:
+    sbp_model = joblib.load("sbp_model.pkl")
+    dbp_model = joblib.load("dbp_model.pkl")
+    scaler = joblib.load("bp_scaler.pkl")
+    poly = joblib.load("bp_poly.pkl")
+    BP_MODELS_LOADED = True
+except:
+    BP_MODELS_LOADED = False
 
 
-# -------------------------------------------------
+# =========================================================
 # BP Feature Extraction
-# -------------------------------------------------
+# =========================================================
 def extract_bp_features(signal_array, fps):
 
     hr = estimate_hr(signal_array, fps)
-
     pulse = get_pos_signal(signal_array)
+
     peaks, _ = find_peaks(pulse, distance=fps * 0.4)
 
     if len(peaks) < 2:
@@ -847,15 +1035,21 @@ def extract_bp_features(signal_array, fps):
     return np.array([[hr, ptt, amplitude, ac_dc_ratio]])
 
 
-# -------------------------------------------------
-# Core Processing Function (USED BY FASTAPI)
-# -------------------------------------------------
-def process_video_file(video_path, update_callback=None):
+# =========================================================
+# 🎯 CORE PROCESSING FUNCTION (USED BY FASTAPI)
+# =========================================================
+def process_video_file(video_path, age=None, gender=None, height=None, weight=None):
 
     cap = cv2.VideoCapture(video_path)
+
     fps = cap.get(cv2.CAP_PROP_FPS)
 
+    # Safety fallback
+    if fps is None or fps <= 0:
+        fps = 30
+
     face_validator = FaceValidator()
+
     signal = []
     frame_count = 0
 
@@ -871,81 +1065,64 @@ def process_video_file(video_path, update_callback=None):
 
         if valid_face:
             roi = extract_roi(frame, landmarks)
+
             if roi.size != 0:
                 rgb_val = extract_rgb_means(roi)
+
                 if rgb_val is not None:
                     signal.append(rgb_val)
 
-        # 🔥 Live Updates from 500–900
-        if update_callback and frame_count >= 500 and frame_count % 100 == 0:
-
-            if len(signal) > int(fps * 8):
-
-                signal_array = np.array(signal)
-
-                hr = estimate_hr(signal_array, fps)
-
-                rr_window = int(fps * 25)
-                rr_signal = signal_array[-rr_window:] if len(signal_array) > rr_window else signal_array
-                pos_rr = get_pos_signal(rr_signal)
-                rr = estimate_rr(pos_rr, fps)
-
-                spo2 = estimate_spo2(signal_array, fps)
-
-                update_callback(frame_count, {
-                    "heart_rate_bpm": float(hr),
-                    "respiratory_rate_bpm": float(rr) if rr else None,
-                    "spo2_percent": float(spo2) if spo2 else None
-                })
-
     cap.release()
 
+    # =====================================================
+    # SIGNAL CHECK
+    # =====================================================
     if len(signal) < int(fps * 20):
         return None
 
     signal_array = np.array(signal)
 
-    # ===== FINAL HR =====
-    final_bpm = estimate_hr(signal_array, fps)
+    # ================== HR ==================
+    final_hr = estimate_hr(signal_array, fps)
 
-    # ===== FINAL RR =====
-    pos_full = get_pos_signal(signal_array)
-    final_rr = estimate_rr(pos_full, fps)
+    # ================== RR ==================
+    pos_signal = get_pos_signal(signal_array)
+    final_rr = estimate_rr(pos_signal, fps)
 
-    # ===== FINAL SpO2 =====
+    # ================== SpO2 ==================
     final_spo2 = estimate_spo2(signal_array, fps)
 
-    # ===== FINAL HRV =====
-    hrv_metrics = estimate_hrv(pos_full, fps)
+    # ================== HRV ==================
+    hrv_metrics = estimate_hrv(pos_signal, fps)
 
-    # ===== FINAL BP =====
-    try:
-        sbp_model = joblib.load("sbp_model.pkl")
-        dbp_model = joblib.load("dbp_model.pkl")
-        scaler = joblib.load("bp_scaler.pkl")
-        poly = joblib.load("bp_poly.pkl")
+    # ================== BP ==================
+    sbp = None
+    dbp = None
 
-        features = extract_bp_features(signal_array, fps)
+    if BP_MODELS_LOADED:
+        try:
+            features = extract_bp_features(signal_array, fps)
 
-        if features is not None:
-            features_scaled = scaler.transform(features)
-            features_poly = poly.transform(features_scaled)
+            if features is not None:
+                features_scaled = scaler.transform(features)
+                features_poly = poly.transform(features_scaled)
 
-            sbp = sbp_model.predict(features_poly)[0]
-            dbp = dbp_model.predict(features_poly)[0]
+                sbp = sbp_model.predict(features_poly)[0]
+                dbp = dbp_model.predict(features_poly)[0]
 
-            sbp = max(90, min(180, sbp))
-            dbp = max(50, min(120, dbp))
-        else:
+                # physiological clamp
+                sbp = max(90, min(180, sbp))
+                dbp = max(50, min(120, dbp))
+
+        except:
             sbp = None
             dbp = None
 
-    except:
-        sbp = None
-        dbp = None
-
+    # =====================================================
+    # RETURN CLEAN JSON
+    # =====================================================
     return {
-        "heart_rate_bpm": float(final_bpm),
+        "heart_rate_bpm": float(final_hr) if final_hr else None,
         "respiratory_rate_bpm": float(final_rr) if final_rr else None,
         "spo2_percent": float(final_spo2) if final_spo2 else None,
         "blood_pressure": {
@@ -956,12 +1133,11 @@ def process_video_file(video_path, update_callback=None):
     }
 
 
-# -------------------------------------------------
-# Standalone CLI Mode (Optional)
-# -------------------------------------------------
-def main():
-
-    print("\n===== PulseScanAI CLI Mode =====\n")
+# =========================================================
+# OPTIONAL CLI MODE
+# =========================================================
+if __name__ == "__main__":
+    import json
 
     path = input("Enter video path: ")
 
@@ -969,11 +1145,5 @@ def main():
 
     if result is None:
         print("❌ Not enough signal.")
-        return
-
-    print("\nFinal Result:\n")
-    print(json.dumps(convert_to_native(result), indent=4))
-
-
-if __name__ == "__main__":
-    main()
+    else:
+        print(json.dumps(result, indent=4))
