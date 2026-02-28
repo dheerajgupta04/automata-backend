@@ -313,7 +313,7 @@ def estimate_hr(rgb_signal, fps, prev_bpm=None):
             valid_data.append(candidates[:12])
 
 
-    if not valid_data: return 0.0
+    if not valid_data: return 0.0, [], 0.0
 
     # 4. PATH TRACKING
     dp = []
@@ -357,13 +357,20 @@ def estimate_hr(rgb_signal, fps, prev_bpm=None):
     path.reverse()
     
     best_path = [valid_data[i][idx][0] for i, idx in enumerate(path)]
-
+    path_snrs = [valid_data[i][idx][1] for i, idx in enumerate(path)]
     
     final_seq = np.sort(best_path)
     if len(final_seq) > 4:
         trim = max(1, len(final_seq) // 5)
-        return float(np.mean(final_seq[trim:-trim]))
-    return float(np.median(best_path))
+        mean_hr = float(np.mean(final_seq[trim:-trim]))
+    else:
+        mean_hr = float(np.median(best_path))
+        
+    # Calculate confidence as a normalized score (approx -10 to 15 range mapped to 0-1)
+    avg_snr = float(np.mean(path_snrs))
+    confidence = min(1.0, max(0.01, (avg_snr + 12.0) / 25.0))
+        
+    return mean_hr, best_path, confidence
 
 def get_pos_signal(rgb_signal):
     rgb = np.array(rgb_signal)

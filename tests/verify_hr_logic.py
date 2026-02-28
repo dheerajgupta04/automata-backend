@@ -51,7 +51,7 @@ def test_hr_accuracy(target_bpm, duration=30, fps=30, sub_harmonic_amp=0.0, brea
         0.3 * signal + 115
     ])
     
-    est_bpm = estimate_hr(rgb, fps)
+    est_bpm, _, _ = estimate_hr(rgb, fps)
     print(f"[+] Estimated BPM: {est_bpm:.2f}")
     
     error = abs(est_bpm - target_bpm)
